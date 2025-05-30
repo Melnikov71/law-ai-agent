@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date
 import os
+from pathlib import Path
 import re
 from typing import Sequence
 from uuid import uuid4
@@ -10,6 +11,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from dotenv import find_dotenv, load_dotenv
+import img2pdf
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
@@ -19,7 +21,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv(find_dotenv())
 
-INCOMING_FILE = "Приглашение.pdf"
+INCOMING_FILE = "Приглашение.jpg"
 AGREEMENT_TEMPLATE = "agreement_template.docx"
 
 
@@ -134,7 +136,7 @@ class LLMAgent:
             self,
             content: str,
             attachments: list[str] | None = None,
-            temperature: float = 0.1
+            temperature: float = 1.0
     ) -> str:
         """Отправляет сообщение в чат"""
         message: dict = {
@@ -170,7 +172,8 @@ def get_user_prompt() -> str:
 
 def main():
     model = GigaChat(
-        model="GigaChat-2-Max",
+        # model="GigaChat-2-Max",
+        model="GigaChat-Pro",
         verify_ssl_certs=False,
     )
 
@@ -182,13 +185,23 @@ def main():
     #     "возьми из загруженного файла."
     # )
     system_prompt = ("Твоя задача извлечь исходящий номер, дату документа и список видов продукции с полями 'Класс "
-                     "ОКПД' и 'Территориальное размещение (федеральный округ)' из предоставленного документа. После "
-                     "этого сгенерируй документ-согласие на участие в аукционе. Не придумывай никаких данных, "
-                     "всё необходимое возьми из предоставленного документа.")
+                     "ОКПД' и 'Территориальное размещение (федеральный округ)' из предоставленного документа. "
+                     "Не придумывай никаких данных, всё необходимое возьми из предоставленного документа.")
 
-    file_uploaded_id = agent.upload_file(open(INCOMING_FILE, "rb"))
+    output_file = INCOMING_FILE
+
+    if Path(INCOMING_FILE).suffix.lower() in [".jpg", ".jpeg"]:
+        # Конвертируем изображение в PDF
+        output_file = Path(INCOMING_FILE).with_suffix(".pdf")
+        with open(output_file, "wb") as f:
+            f.write(img2pdf.convert(INCOMING_FILE))
+
+    file_uploaded_id = agent.upload_file(open(output_file, "rb"))
 
     agent_response = agent.invoke(content=system_prompt, attachments=[file_uploaded_id])
+
+    if output_file != INCOMING_FILE:
+        os.remove(output_file)
 
     while (True):
         print_agent_response(agent_response)
